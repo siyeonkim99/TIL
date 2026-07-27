@@ -22,49 +22,78 @@ INLINE_RE = re.compile(r"^(.*?)\s*#\((\d+)\)(?!>)\s?(.*)$")
 CONT_RE = re.compile(r"^\s*#\((\d+)\)>\s?(.*)$")
 
 
+META_RE = re.compile(r"^\s*(title|tags|date)\s*:\s*(.*)$")
+
+
 def read_meta(src):
-    """모듈 docstring에서 title/tags 등을 뽑고, docstring이 끝나는 줄 번호를 돌려준다."""
+    """title/tags/date 를 찾는다. 먼저 모듈 docstring을 보고,
+    없으면 파일 전체에서 title:/tags: 로 시작하는 줄을 찾는다(위치 무관)."""
     meta, skip = {}, 0
     try:
         tree = ast.parse(src)
+        doc = ast.get_docstring(tree)
     except SyntaxError:
-        return meta, skip
-    doc = ast.get_docstring(tree)
-    if doc is None:
-        return meta, skip
-    skip = tree.body[0].end_lineno
-    for line in doc.splitlines():
-        if ":" in line:
-            key, val = line.split(":", 1)
-            meta[key.strip().lower()] = val.strip()
+        doc = None
+    if doc is not None:
+        skip = tree.body[0].end_lineno
+        for line in doc.splitlines():
+            m = META_RE.match(line)
+            if m:
+                meta[m.group(1).lower()] = m.group(2).strip()
+    # 모듈 docstring에서 title 을 못 찾았으면 파일 전체를 훑는다.
+    if not meta.get("title"):
+        for line in src.splitlines():
+            m = META_RE.match(line)
+            if m and m.group(1).lower() not in meta:
+                meta[m.group(1).lower()] = m.group(2).strip()
     return meta, skip
 
 
+SNIP_START_RE = re.compile(r"^\s*#\s*-{2,}8<-{2,}\s*\[start")
+SNIP_END_RE = re.compile(r"^\s*#\s*-{2,}8<-{2,}\s*\[end")
+
+
 def parse(src, skip=0):
-    body, stuck, questions = [], [], []
+    body, questions = [], []
     code, hl = [], []
     notes = {}        # {번호: [설명 줄, ...]}  삽입 순서 유지
     note_order = []   # 번호 등장 순서
-    pending_hl = False
+
+    lines = src.splitlines()
+    # 파일에 --8<-- [start] 가 하나라도 있으면 "구간만" 모드.
+    snippet_mode = any(SNIP_START_RE.match(l) for l in lines)
+    in_region = False
+
+    def mark_hl(idx):
+        """code 리스트에서 1-based 줄 번호 idx 를 강조 목록에 추가(중복 방지)."""
+        if idx not in hl:
+            hl.append(idx)
 
     def flush():
         nonlocal code, hl, notes, note_order
         while code and not code[-1].strip():
             code.pop()
         if code:
-            # 여러 줄 설명은 줄바꿈(<br>)을 살려서 합친다. 한 줄이면 그대로.
             ordered = [(n, "<br>".join(s for s in notes[n] if s).strip())
                        for n in note_order]
-            body.append(("code", list(code), (list(hl), ordered)))
+            body.append(("code", list(code), (sorted(hl), ordered)))
         code, hl = [], []
         notes, note_order = {}, []
 
-    for lineno, raw in enumerate(src.splitlines(), 1):
+    for lineno, raw in enumerate(lines, 1):
         if lineno <= skip:
+            continue
+        # snippet 구간 시작/끝
+        if SNIP_START_RE.match(raw):
+            in_region = True
+            continue
+        if SNIP_END_RE.match(raw):
+            in_region = False
             continue
         if ISSUE_RE.match(raw):
             continue
-        if SNIPPET_RE.match(raw):
+        # 파일 중간의 title:/tags:/date: 줄, 그리고 그걸 감싼 docstring 따옴표는 노트에서 제외
+        if META_RE.match(raw) or raw.strip() in ('"""', "'''"):
             continue
         m = MARK_RE.match(raw)
         if m and not (lineno == 1 and raw.startswith("#!/")):
@@ -79,8 +108,6 @@ def parse(src, skip=0):
                 else:
                     body.append(("prose", text, None))
             elif tag == "!":
-                # 코드 블록을 먼저 닫아 warn 박스가 코드 바로 밑에 오게 한다.
-                # 연속된 #! 는 하나의 박스로 합친다.
                 if body and body[-1][0] == "warn":
                     merged = body[-1][1] + ([text] if text else [])
                     body[-1] = ("warn", merged, None)
@@ -94,19 +121,21 @@ def parse(src, skip=0):
         cont = CONT_RE.match(raw)
         if cont:
             num, text = cont.group(1), cont.group(2).rstrip()
-            # 코드 줄에 아직 마커가 없으면, 직전 코드 줄에 자동으로 붙인다.
             if num not in notes:
                 notes[num] = []
                 note_order.append(num)
                 if code:
-                    # 뒤에서부터 비어있지 않은 마지막 코드 줄을 찾아 마커 부착
                     for i in range(len(code) - 1, -1, -1):
                         if code[i].strip():
                             if "# (" not in code[i]:
                                 code[i] = code[i].rstrip() + f"  # ({num})!"
+                            mark_hl(i + 1)   # 그 줄을 파란 배경으로 강조
                             break
             if text:
                 notes[num].append(text)
+            continue
+        # snippet 모드에서는 구간 밖의 코드는 노트에 넣지 않는다.
+        if snippet_mode and not in_region:
             continue
         if not raw.strip() and not code:
             continue
@@ -115,6 +144,7 @@ def parse(src, skip=0):
         if inl and inl.group(1).strip():
             code_part, num, note_text = inl.group(1).rstrip(), inl.group(2), inl.group(3).strip()
             code.append(f"{code_part}  # ({num})!")
+            mark_hl(len(code))   # 그 줄을 파란 배경으로 강조
             if num not in notes:
                 notes[num] = []
                 note_order.append(num)
@@ -122,11 +152,8 @@ def parse(src, skip=0):
                 notes[num].append(note_text)
             continue
         code.append(raw)
-        if pending_hl:
-            hl.append(len(code))
-            pending_hl = False
     flush()
-    return body, stuck, questions
+    return body, [], questions
 
 
 def render(path, meta, body, stuck, questions):
