@@ -1,3 +1,8 @@
+"""
+title: FastAPI 게시글 CRUD
+tags: [Fastapi, 1주차]
+"""
+
 from typing import List
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -34,10 +39,6 @@ async def ping_db():
 def init_db():
     Base.metadata.create_all(bind=engine)
 
-"""
-title: FastAPI 게시글 CRUD
-tags: [Fastapi, 1주차]
-"""
 
 #== 게시글 생성
 # --8<-- [start:게시글 생성]
