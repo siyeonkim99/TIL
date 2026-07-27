@@ -127,8 +127,6 @@ def parse(src, skip=0):
                 if code:
                     for i in range(len(code) - 1, -1, -1):
                         if code[i].strip():
-                            if "# (" not in code[i]:
-                                code[i] = code[i].rstrip() + f"  # ({num})!"
                             mark_hl(i + 1)   # 그 줄을 파란 배경으로 강조
                             break
             if text:
@@ -143,8 +141,8 @@ def parse(src, skip=0):
         inl = INLINE_RE.match(raw)
         if inl and inl.group(1).strip():
             code_part, num, note_text = inl.group(1).rstrip(), inl.group(2), inl.group(3).strip()
-            code.append(f"{code_part}  # ({num})!")
-            mark_hl(len(code))   # 그 줄을 파란 배경으로 강조
+            code.append(code_part)   # 마커 텍스트는 코드에서 제거
+            mark_hl(len(code))       # 그 줄을 파란 배경으로 강조
             if num not in notes:
                 notes[num] = []
                 note_order.append(num)
@@ -191,10 +189,21 @@ def render(path, meta, body, stuck, questions):
             out.extend(a)
             out.append("```")
             out.append("")
-            # 접이식 주석: 코드블록 바로 뒤에 번호 목록으로
+            # 코드 밑에 접이식(클릭하면 펼쳐지는) 박스로 설명을 넣는다.
             for num, note_text in notes:
-                out.append(f"{num}.  {note_text}")
-            if notes:
+                parts = [p.strip() for p in note_text.split("<br>") if p.strip()]
+                if not parts:
+                    continue
+                summary = parts[0]
+                out.append(f'??? note "{summary}"')
+                rest = parts[1:] if len(parts) > 1 else []
+                if rest:
+                    for i, line in enumerate(rest):
+                        suffix = "  " if i < len(rest) - 1 else ""
+                        out.append(f"    {line}{suffix}")
+                else:
+                    # 한 줄짜리면 제목만으론 허전하니 본문에도 한 번 더
+                    out.append(f"    {summary}")
                 out.append("")
 
     if questions:
