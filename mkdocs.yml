@@ -28,6 +28,8 @@ theme:
     - content.code.annotate # #(1)! 접이식 주석
 
 markdown_extensions:
+  - attr_list               # 코드 접이식 주석에 필요
+  - md_in_html              # 코드 접이식 주석에 필요
   - admonition              # !!! warning 박스
   - pymdownx.details        # 접이식 박스
   - pymdownx.superfences
@@ -35,6 +37,7 @@ markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span
+      pygments_lang_class: true
   - pymdownx.snippets:      # --8<-- 로 코드 파일 직접 끌어오기
       base_path: ["docs"]
   - pymdownx.tasklist:      # - [ ] 체크박스

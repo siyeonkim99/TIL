@@ -14,6 +14,10 @@ import sys
 MARK_RE = re.compile(r"^\s*#(==|>|!|\?)\s?(.*)$")
 # #@@@ 는 issue_extract.py 가 처리하므로 노트/코드 양쪽에서 제외한다.
 ISSUE_RE = re.compile(r"^\s*#@@@\s+")
+# 코드 줄 끝의 접이식 주석 마커:  ... code ...  #(1) 짧은 설명
+INLINE_RE = re.compile(r"^(.*?)\s*#\((\d+)\)(?!>)\s?(.*)$")
+# 여러 줄 접기 설명의 이어지는 줄:  #(1)> 긴 설명
+CONT_RE = re.compile(r"^\s*#\((\d+)\)>\s?(.*)$")
 
 
 def read_meta(src):
@@ -37,15 +41,21 @@ def read_meta(src):
 def parse(src, skip=0):
     body, stuck, questions = [], [], []
     code, hl = [], []
+    notes = {}        # {번호: [설명 줄, ...]}  삽입 순서 유지
+    note_order = []   # 번호 등장 순서
     pending_hl = False
 
     def flush():
-        nonlocal code, hl
+        nonlocal code, hl, notes, note_order
         while code and not code[-1].strip():
             code.pop()
         if code:
-            body.append(("code", list(code), list(hl)))
+            # 여러 줄 설명은 줄바꿈(<br>)을 살려서 합친다. 한 줄이면 그대로.
+            ordered = [(n, "<br>".join(s for s in notes[n] if s).strip())
+                       for n in note_order]
+            body.append(("code", list(code), (list(hl), ordered)))
         code, hl = [], []
+        notes, note_order = {}, []
 
     for lineno, raw in enumerate(src.splitlines(), 1):
         if lineno <= skip:
@@ -70,7 +80,27 @@ def parse(src, skip=0):
             elif tag == "?":
                 questions.append(text)
             continue
+        # 여러 줄 접기 설명의 이어지는 줄:  #(1)> ...
+        cont = CONT_RE.match(raw)
+        if cont:
+            num, text = cont.group(1), cont.group(2).rstrip()
+            if num not in notes:
+                notes[num] = []
+                note_order.append(num)
+            notes[num].append(text)
+            continue
         if not raw.strip() and not code:
+            continue
+        # 코드 줄 끝의 접이식 주석 마커:  code  #(1) 짧은 설명
+        inl = INLINE_RE.match(raw)
+        if inl and inl.group(1).strip():
+            code_part, num, note_text = inl.group(1).rstrip(), inl.group(2), inl.group(3).strip()
+            code.append(f"{code_part}  # ({num})!")
+            if num not in notes:
+                notes[num] = []
+                note_order.append(num)
+            if note_text:
+                notes[num].append(note_text)
             continue
         code.append(raw)
         if pending_hl:
@@ -101,13 +131,19 @@ def render(path, meta, body, stuck, questions):
             out.append(a)
             out.append("")
         else:
+            hl, notes = b
             fence = "```python"
-            if b:
-                fence += ' hl_lines="%s"' % " ".join(str(n) for n in b)
+            if hl:
+                fence += ' hl_lines="%s"' % " ".join(str(n) for n in hl)
             out.append(fence)
             out.extend(a)
             out.append("```")
             out.append("")
+            # 접이식 주석: 코드블록 바로 뒤에 번호 목록으로
+            for num, note_text in notes:
+                out.append(f"{num}.  {note_text}")
+            if notes:
+                out.append("")
 
     if stuck:
         out.append("## 막혔던 부분")
