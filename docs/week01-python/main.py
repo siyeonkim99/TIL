@@ -110,12 +110,12 @@ def update_post(post_id: int, post_update: PostUpdate, db: Session = Depends(get
     if post is None:
         raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다.")
 
-    update_dict = {                                    #(1)
+    update_dict = {                                    
         key: value
         for key, value in post_update.model_dump().items()
         if value is not None
     }
-    #(1)> 사용자가 실제로 보낸(None이 아닌) 필드만 골라 수정하는 부분
+    #(1:5)> 사용자가 실제로 보낸(None이 아닌) 필드만 골라 수정하는 부분
     #(1)> 1) model_dump()로 요청을 dict로 변환 → {"title": "새 제목", "content": None}
     #(1)> 2) .items()로 (key, value) 쌍을 하나씩 꺼냄
     #(1)> 3) if value is not None → 값 있는 것만 추림 → {"title": "새 제목"}

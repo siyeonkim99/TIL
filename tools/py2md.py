@@ -16,10 +16,10 @@ MARK_RE = re.compile(r"^\s*#(==|>|!|\?)\s?(.*)$")
 ISSUE_RE = re.compile(r"^\s*#@@@\s+")
 # snippet 구간 표시(--8<-- [start]/[end])는 노트 코드에서 제거한다.
 SNIPPET_RE = re.compile(r"^\s*#\s*-{2,}8<-{2,}\s*\[(start|end)")
-# 코드 줄 끝의 접이식 주석 마커:  ... code ...  #(1) 짧은 설명
-INLINE_RE = re.compile(r"^(.*?)\s*#\((\d+)\)(?!>)\s?(.*)$")
-# 여러 줄 접기 설명의 이어지는 줄:  #(1)> 긴 설명
-CONT_RE = re.compile(r"^\s*#\((\d+)\)>\s?(.*)$")
+# 코드 줄 끝의 접이식 주석 마커:  ... code ...  #(1) 또는 #(1:3) 짧은 설명
+INLINE_RE = re.compile(r"^(.*?)\s*#\((\d+)(?::(\d+))?\)(?!>)\s?(.*)$")
+# 여러 줄 접기 설명의 이어지는 줄:  #(1)> 또는 #(1:3)> 긴 설명
+CONT_RE = re.compile(r"^\s*#\((\d+)(?::(\d+))?\)>\s?(.*)$")
 
 
 META_RE = re.compile(r"^\s*(title|tags|date)\s*:\s*(.*)$")
@@ -117,18 +117,26 @@ def parse(src, skip=0):
             elif tag == "?":
                 questions.append(text)
             continue
-        # 여러 줄 접기 설명의 이어지는 줄:  #(1)> ...
+        # 여러 줄 접기 설명의 이어지는 줄:  #(1)> 또는 #(1:3)> ...
         cont = CONT_RE.match(raw)
         if cont:
-            num, text = cont.group(1), cont.group(2).rstrip()
+            num, span, text = cont.group(1), cont.group(2), cont.group(3).rstrip()
             if num not in notes:
                 notes[num] = []
                 note_order.append(num)
                 if code:
+                    # 직전의 비어있지 않은 코드 줄 위치를 찾는다.
+                    last = None
                     for i in range(len(code) - 1, -1, -1):
                         if code[i].strip():
-                            mark_hl(i + 1)   # 그 줄을 파란 배경으로 강조
+                            last = i
                             break
+                    if last is not None:
+                        n_lines = int(span) if span else 1
+                        # last 줄 포함해서 위로 n_lines 개를 강조
+                        for j in range(last - n_lines + 1, last + 1):
+                            if 0 <= j < len(code):
+                                mark_hl(j + 1)
             if text:
                 notes[num].append(text)
             continue
@@ -137,12 +145,17 @@ def parse(src, skip=0):
             continue
         if not raw.strip() and not code:
             continue
-        # 코드 줄 끝의 접이식 주석 마커:  code  #(1) 짧은 설명
+        # 코드 줄 끝의 접이식 주석 마커:  code  #(1) 또는 #(1:3) 짧은 설명
         inl = INLINE_RE.match(raw)
         if inl and inl.group(1).strip():
-            code_part, num, note_text = inl.group(1).rstrip(), inl.group(2), inl.group(3).strip()
+            code_part = inl.group(1).rstrip()
+            num, span, note_text = inl.group(2), inl.group(3), inl.group(4).strip()
             code.append(code_part)   # 마커 텍스트는 코드에서 제거
-            mark_hl(len(code))       # 그 줄을 파란 배경으로 강조
+            n_lines = int(span) if span else 1
+            cur = len(code)          # 1-based 현재 줄
+            for j in range(cur - n_lines + 1, cur + 1):
+                if j >= 1:
+                    mark_hl(j)
             if num not in notes:
                 notes[num] = []
                 note_order.append(num)
@@ -177,8 +190,9 @@ def render(path, meta, body, stuck, questions):
         elif kind == "warn":
             # 여러 줄을 하나의 warning 박스로. 위치는 이 자리(대개 코드 바로 밑).
             out.append("!!! warning")
-            for line in a:
-                out.append(f"    {line}")
+            for i, line in enumerate(a):
+                suffix = "  " if i < len(a) - 1 else ""
+                out.append(f"    {line}{suffix}")
             out.append("")
         else:
             hl, notes = b
