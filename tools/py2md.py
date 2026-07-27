@@ -14,6 +14,8 @@ import sys
 MARK_RE = re.compile(r"^\s*#(==|>|!|\?)\s?(.*)$")
 # #@@@ 는 issue_extract.py 가 처리하므로 노트/코드 양쪽에서 제외한다.
 ISSUE_RE = re.compile(r"^\s*#@@@\s+")
+# snippet 구간 표시(--8<-- [start]/[end])는 노트 코드에서 제거한다.
+SNIPPET_RE = re.compile(r"^\s*#\s*-{2,}8<-{2,}\s*\[(start|end)")
 # 코드 줄 끝의 접이식 주석 마커:  ... code ...  #(1) 짧은 설명
 INLINE_RE = re.compile(r"^(.*?)\s*#\((\d+)\)(?!>)\s?(.*)$")
 # 여러 줄 접기 설명의 이어지는 줄:  #(1)> 긴 설명
@@ -62,6 +64,8 @@ def parse(src, skip=0):
             continue
         if ISSUE_RE.match(raw):
             continue
+        if SNIPPET_RE.match(raw):
+            continue
         m = MARK_RE.match(raw)
         if m and not (lineno == 1 and raw.startswith("#!/")):
             tag, text = m.group(1), m.group(2).strip()
@@ -75,8 +79,14 @@ def parse(src, skip=0):
                 else:
                     body.append(("prose", text, None))
             elif tag == "!":
-                stuck.append(text)
-                pending_hl = True
+                # 코드 블록을 먼저 닫아 warn 박스가 코드 바로 밑에 오게 한다.
+                # 연속된 #! 는 하나의 박스로 합친다.
+                if body and body[-1][0] == "warn":
+                    merged = body[-1][1] + ([text] if text else [])
+                    body[-1] = ("warn", merged, None)
+                else:
+                    flush()
+                    body.append(("warn", [text] if text else [], None))
             elif tag == "?":
                 questions.append(text)
             continue
@@ -84,10 +94,19 @@ def parse(src, skip=0):
         cont = CONT_RE.match(raw)
         if cont:
             num, text = cont.group(1), cont.group(2).rstrip()
+            # 코드 줄에 아직 마커가 없으면, 직전 코드 줄에 자동으로 붙인다.
             if num not in notes:
                 notes[num] = []
                 note_order.append(num)
-            notes[num].append(text)
+                if code:
+                    # 뒤에서부터 비어있지 않은 마지막 코드 줄을 찾아 마커 부착
+                    for i in range(len(code) - 1, -1, -1):
+                        if code[i].strip():
+                            if "# (" not in code[i]:
+                                code[i] = code[i].rstrip() + f"  # ({num})!"
+                            break
+            if text:
+                notes[num].append(text)
             continue
         if not raw.strip() and not code:
             continue
@@ -130,6 +149,12 @@ def render(path, meta, body, stuck, questions):
         elif kind == "prose":
             out.append(a)
             out.append("")
+        elif kind == "warn":
+            # 여러 줄을 하나의 warning 박스로. 위치는 이 자리(대개 코드 바로 밑).
+            out.append("!!! warning")
+            for line in a:
+                out.append(f"    {line}")
+            out.append("")
         else:
             hl, notes = b
             fence = "```python"
@@ -145,14 +170,6 @@ def render(path, meta, body, stuck, questions):
             if notes:
                 out.append("")
 
-    if stuck:
-        out.append("## 막혔던 부분")
-        out.append("")
-        for s in stuck:
-            out.append("!!! warning")
-            out.append(f"    {s}")
-            out.append("")
-
     if questions:
         out.append("## 다시 볼 것")
         out.append("")
@@ -166,6 +183,9 @@ def render(path, meta, body, stuck, questions):
 def convert(path):
     src = path.read_text(encoding="utf-8")
     meta, skip = read_meta(src)
+    # title 이 비어 있으면 아직 안 쓴 템플릿이므로 노트를 만들지 않는다.
+    if not meta.get("title", "").strip():
+        return None
     body, stuck, questions = parse(src, skip)
     target = path.with_suffix(".md")
     target.write_text(render(path, meta, body, stuck, questions), encoding="utf-8")
@@ -178,4 +198,8 @@ if __name__ == "__main__":
     for arg in sys.argv[1:]:
         p = pathlib.Path(arg)
         if p.suffix == ".py" and p.name != "py2md.py":
-            print("생성:", convert(p))
+            result = convert(p)
+            if result:
+                print("생성:", result)
+            else:
+                print("건너뜀 (title 비어 있음):", p)

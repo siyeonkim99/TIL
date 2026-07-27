@@ -34,7 +34,10 @@ async def ping_db():
 def init_db():
     Base.metadata.create_all(bind=engine)
 
-
+"""
+title: FastAPI 게시글 CRUD
+tags: [Fastapi, 1주차]
+"""
 
 #== 게시글 생성
 # --8<-- [start:게시글 생성]
@@ -53,7 +56,7 @@ def create_post(post: Postcreate,db: Session = Depends(get_db)):
     db.refresh(created_post)
 
     return created_post
-# --8<-- [end:게시글 생성]
+#--8<-- [end:게시글 생성]
 
 
 #!pydantic 모델이 딕셔너리(JSON)로 알아서 바뀌는 건, 함수가 return 해서 클라이언트에게 응답으로 나갈 때임. 
@@ -150,3 +153,5 @@ def delete_post(post_id: int, db: Session=Depends(get_db)):
     db.commit()
     return {"message": "게시글이 삭제되었습니다."} 
     
+
+
