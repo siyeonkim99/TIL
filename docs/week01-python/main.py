@@ -130,10 +130,6 @@ def update_post(post_id: int, post_update: PostUpdate, db: Session = Depends(get
 
 
 #! 필드가 늘 때마다 if문을 하나씩 추가해야 하는 방식(if post_update.title is not None: ...)의 불편함을, 컴프리헨션 + setattr로 필드 개수와 무관하게 처리하도록 바꾼 것.
-
-    db.commit()
-    db.refresh(post)
-    return post
 # --8<-- [end]
 
 
