@@ -41,7 +41,7 @@ def init_db():
 
 
 #== 게시글 생성
-# --8<-- [start:게시글 생성]
+# --8<-- [start]
 @app.post("/posts", response_model=PostResponse, summary="새 게시글 생성", description="새로운 게시글을 생성합니다.")
 def create_post(post: Postcreate,db: Session = Depends(get_db)):
     
@@ -57,7 +57,7 @@ def create_post(post: Postcreate,db: Session = Depends(get_db)):
     db.refresh(created_post)
 
     return created_post
-#--8<-- [end:게시글 생성]
+# --8<-- [end]
 
 
 #!pydantic 모델이 딕셔너리(JSON)로 알아서 바뀌는 건, 함수가 return 해서 클라이언트에게 응답으로 나갈 때임. 
@@ -69,7 +69,7 @@ def create_post(post: Postcreate,db: Session = Depends(get_db)):
 
 
 #== 게시글 목록 조회
-# --8<-- [start:게시글 목록 조회]
+# --8<-- [start]
 @app.get("/posts", response_model=List[PostResponse], 
          summary="게시글 목록 조회", description="게시글 목록을 조회합니다.",
          responses= {404: {
@@ -86,9 +86,11 @@ def get_posts(db: Session=Depends(get_db)):
         raise HTTPException(status_code= 404, detail="게시글을 찾을 수 없습니다.")
     
     return posts
+# --8<-- [end]
 
 
 #== 게시글 상세 조회
+# --8<-- [start]
 @app.get("/posts/{post_id}",response_model=PostResponse, summary="게시글 상세 조회", description="게시글 ID를 기반으로 특정 게시글을 조회합니다.")
 def get_post(post_id: int, db: Session=Depends(get_db)):
     post = db.execute(select(Post).where(Post.id == post_id)).scalar_one_or_none()
@@ -97,8 +99,10 @@ def get_post(post_id: int, db: Session=Depends(get_db)):
         raise HTTPException(status_code= 404, detail="게시글을 찾을 수 없습니다.")
     
     return post
+# --8<-- [end]
 
 #== 게시글 수정
+# --8<-- [start]
 @app.put("/posts/{post_id}", response_model=PostResponse, summary="게시글 수정", description="게시글 ID를 기반으로 특정 게시글을 수정합니다.")
 def update_post(post_id: int, post_update: PostUpdate, db: Session = Depends(get_db)):
     post = db.execute(select(Post).where(Post.id == post_id)).scalar_one_or_none()
@@ -123,16 +127,18 @@ def update_post(post_id: int, post_update: PostUpdate, db: Session = Depends(get
     db.commit()
     db.refresh(post)
     return post
-# --8<-- [end:게시글 목록 조회]
+
 
 #! 필드가 늘 때마다 if문을 하나씩 추가해야 하는 방식(if post_update.title is not None: ...)의 불편함을, 컴프리헨션 + setattr로 필드 개수와 무관하게 처리하도록 바꾼 것.
 
     db.commit()
     db.refresh(post)
     return post
+# --8<-- [end]
 
 
 #== 게시글 삭제
+# --8<-- [start]
 @app.delete("/posts/{post_id}", response_model=dict,summary="게시글 삭제", description="게시글 ID를 기반으로 특정 게시글을 삭제합니다.",
              responses= {200:{"description": "게시글 삭제 성공",
                               "content": {"application/json": {"example": {"message":"게시글이 성공적으로 삭제되었습니다."}}}
@@ -153,6 +159,7 @@ def delete_post(post_id: int, db: Session=Depends(get_db)):
     db.delete(post)
     db.commit()
     return {"message": "게시글이 삭제되었습니다."} 
+# --8<-- [end]
     
 
 
